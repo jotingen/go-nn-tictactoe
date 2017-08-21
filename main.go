@@ -9,19 +9,38 @@ import (
 )
 
 var (
-	tt    []*network.Network
+	tt    []network.Network
 	board = []float64{.5, .5, .5, .5, .5, .5, .5, .5, .5}
+	total int
+	err error
 )
 
 func main() {
 
-	var illegal []int
 
-	total := 10
-	for i := 0; i < total; i++ {
-		tt = append(tt, network.New([]int{10, 729, 81, 9}))
-		illegal = append(illegal, 0)
+	if len(os.Args) > 1 {
+		fmt.Println("Loading", os.Args[1])
+		file, e := ioutil.ReadFile(os.Args[1])
+		if e != nil {
+			fmt.Printf("File error: %v\n", e)
+			os.Exit(1)
+		}
+		json.Unmarshal(file, &tt)
+		total = len(tt)
+		fmt.Println("Total", total)
+	} else {
+
+		total = 25
+		for i := 0; i < total; i++ {
+			tt = append(tt, network.New([]int{10, 729, 81, 9}))
+		}
+
 	}
+
+
+	for gen := 1; gen <= 2; gen++ {
+	fight(gen)
+} 
 
 	jsonString, err := json.MarshalIndent(tt, "", "  ")
 	if err != nil {
@@ -29,78 +48,103 @@ func main() {
 		os.Exit(1)
 	}
 
-	//fmt.Println(string(jsonString))
-	ioutil.WriteFile("test.init", jsonString, 0644)
-	//os.Exit(0)
+	ioutil.WriteFile("test.final", jsonString, 0644)
 
+}
+
+func fight(gen int) {
+	var illegal []int
+	var wins []int
+	for i := 0; i < total; i++ {
+		illegal = append(illegal, 0)
+		wins = append(wins, 0)
+	}
 	totalAttempts := 0
-	for p := 0; p < 2; p++ {
+	passillegal := true
+	for passillegal {
+		passillegal = false
 		for i := 0; i < total; i++ {
-			for j := 0; j < total; j++ {
+			wins[i] = 0
+		}
+		for i := 0; i < total; i++ {
+			for j := i + 1; j < total; j++ {
 
-				if i != j {
-					attempts := 0
-					noillegals := false
-					for !noillegals {
-						thisillegal := []int{0, 0}
+				attempts := 0
+				noillegals := false
+				for !noillegals {
+					thisillegal := []int{0, 0}
 
-						reset()
-
-						thisillegal[0] += moveAI("X", tt[i])
-						thisillegal[1] += moveAI("O", tt[j])
-						thisillegal[0] += moveAI("X", tt[i])
-						thisillegal[1] += moveAI("O", tt[j])
-						thisillegal[0] += moveAI("X", tt[i])
-						thisillegal[1] += moveAI("O", tt[j])
-						thisillegal[0] += moveAI("X", tt[i])
-						thisillegal[1] += moveAI("O", tt[j])
-						thisillegal[0] += moveAI("X", tt[i])
-
-						//print()
-
-						reset()
-
-						thisillegal[1] += moveAI("X", tt[j])
-						thisillegal[0] += moveAI("O", tt[i])
-						thisillegal[1] += moveAI("X", tt[j])
-						thisillegal[0] += moveAI("O", tt[i])
-						thisillegal[1] += moveAI("X", tt[j])
-						thisillegal[0] += moveAI("O", tt[i])
-						thisillegal[1] += moveAI("X", tt[j])
-						thisillegal[0] += moveAI("O", tt[i])
-						thisillegal[1] += moveAI("X", tt[j])
-
-						//print()
-
-						if thisillegal[0] == 0 && thisillegal[1] == 0 {
-							noillegals = true
-						}
-						illegal[i] += thisillegal[0]
-						illegal[j] += thisillegal[1]
-
-						attempts++
-						totalAttempts++
-
-						if totalAttempts%100 == 0 || totalAttempts == 1 {
-							jsonString, err := json.MarshalIndent(tt, "", "  ")
-							if err != nil {
-								fmt.Println("Error converting to JSON:", err)
-								os.Exit(1)
+					reset()
+				Game0:
+					for move := 0; move < 9; move++ {
+						if move%2 == 0 {
+							won, illegalmoves := moveAI("X", tt[i])
+							thisillegal[0] += illegalmoves
+							if won {
+								wins[i]++
+								break Game0
 							}
-
-							ioutil.WriteFile(fmt.Sprintf("test.%05d", totalAttempts), jsonString, 0644)
 						}
-						fmt.Printf("%dv%d: %5d Attempts, Illegal moves: %d : %d      \r", i, j, attempts, illegal, thisillegal)
+						if move%2 == 1 {
+							won, illegalmoves := moveAI("O", tt[j])
+							thisillegal[1] += illegalmoves
+							if won {
+								wins[j]++
+								break Game0
+							}
+						}
 					}
-					fmt.Printf("%dv%d: %5d Attempts, Illegal moves: %d             \n", i, j, attempts, illegal)
+
+					//print()
+
+					reset()
+				Game1:
+					for move := 1; move < 9; move++ {
+						if move%2 == 0 {
+							won, illegalmoves := moveAI("X", tt[j])
+							thisillegal[1] += illegalmoves
+							if won {
+								wins[j]++
+								break Game1
+							}
+						}
+						if move%2 == 1 {
+							won, illegalmoves := moveAI("O", tt[i])
+							thisillegal[0] += illegalmoves
+							if won {
+								wins[i]++
+								break Game1
+							}
+						}
+					}
+
+					//print()
+
+					if thisillegal[0] == 0 && thisillegal[1] == 0 {
+						noillegals = true
+					} else {
+						passillegal = true
+					}
+
+					illegal[i] += thisillegal[0]
+					illegal[j] += thisillegal[1]
+
+					attempts++
+					totalAttempts++
+
+					fmt.Printf("Gen %d: %5d Attempts, Illegal moves: %d      \r", gen, attempts, illegal)
 				}
+				fmt.Printf("Gen %d: %5d Attempts, Illegal moves: %d      \r", gen, attempts, illegal)
+				//fmt.Printf("%dv%d: %5d Attempts, Illegal moves: %d             \n", i, j, attempts, illegal)
 			}
 		}
 	}
 
+	fmt.Println()
+	fmt.Printf("Gen %d: Wins: %d\n", gen, wins)
 }
 
-func moveAI(player string, tt *network.Network) (illegal int) {
+func moveAI(player string, tt network.Network) (win bool, illegal int) {
 	var p float64
 	if player == "X" {
 		p = 1
@@ -144,6 +188,31 @@ func moveAI(player string, tt *network.Network) (illegal int) {
 		//fmt.Printf("Attempts: %d  %5.3f\r", illegal, spot)
 	}
 	board[largest_xy] = p
+	if board[2] == p && board[1] == p && board[0] == p {
+		win = true
+	}
+	if board[5] == p && board[4] == p && board[3] == p {
+		win = true
+	}
+	if board[8] == p && board[7] == p && board[6] == p {
+		win = true
+	}
+	if board[8] == p && board[5] == p && board[2] == p {
+		win = true
+	}
+	if board[7] == p && board[4] == p && board[1] == p {
+		win = true
+	}
+	if board[6] == p && board[3] == p && board[0] == p {
+		win = true
+	}
+	if board[8] == p && board[4] == p && board[0] == p {
+		win = true
+	}
+	if board[6] == p && board[4] == p && board[2] == p {
+		win = true
+	}
+
 	return
 }
 
