@@ -5,6 +5,7 @@ import (
 	"fmt"
 	network "github.com/jotingen/go-neuralnetwork"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"sort"
 )
@@ -62,10 +63,44 @@ func main() {
 			return tt[i].wins > tt[j].wins
 		})
 
+		fight(gen)
+		fmt.Printf("Gen %d: Wins: [ ", gen)
+		for i := 0; i < len(tt); i++ {
+			fmt.Printf("%d ", tt[i].wins)
+		}
+		fmt.Println("]")
+		
+		//Remove lowest 20
+		replaceChild := 15
+		replaceNew := 5
+		tt = tt[:len(tt)-replaceChild-replaceNew]
+
+		//Replace middle 15 with children
+		for r := 0; r < replaceChild; r++ {
+			ttnew := net{network.New([]int{10, 729, 81, 9}), 0}
+			parentA := rand.Intn(4)
+			parentB := rand.Intn(4)
+			for i := 0; i < len(ttnew.Net.Neurons); i++ {
+				for j := 0; j < len(ttnew.Net.Neurons[i]); j++ {
+					parent := 0
+					if rand.Intn(1) == 1 {
+						parent = parentA
+					} else {
+						parent = parentB
+					}
+					for k := 0; k < len(ttnew.Net.Neurons[i][j].Weight); k++ {
+						if rand.Intn(99) > 3 {
+							//Replace with parent if not mutating
+							ttnew.Net.Neurons[i][j].Weight[k] = tt[parent].Net.Neurons[i][j].Weight[k]
+						}
+					}
+				}
+			}
+			tt = append(tt, ttnew)
+		}
+
 		//Replace lowest 5 with random new ones
-		replace := 5
-		tt = tt[:len(tt)-replace]
-		for r := 0; r < replace; r++ {
+		for r := 0; r < replaceNew; r++ {
 			tt = append(tt, net{network.New([]int{10, 729, 81, 9}), 0})
 		}
 	}
@@ -120,6 +155,9 @@ func fight(gen int) {
 									break Game
 								}
 							}
+							if move == 8 {
+								games++
+							}
 						}
 
 						//print()
@@ -133,13 +171,9 @@ func fight(gen int) {
 						illegal[i] += thisillegal[0]
 						illegal[j] += thisillegal[1]
 
-						if games%100 == 0 {
-							fmt.Printf("Gen %d: %5d Games, Illegal moves: %d\r", gen, games, illegal)
-						}
-					}
-					if games%100 == 0 {
 						fmt.Printf("Gen %d: %5d Games, Illegal moves: %d\r", gen, games, illegal)
 					}
+					fmt.Printf("Gen %d: %5d Games, Illegal moves: %d\r", gen, games, illegal)
 				}
 			}
 		}
