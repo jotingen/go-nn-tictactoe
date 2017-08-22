@@ -6,17 +6,22 @@ import (
 	network "github.com/jotingen/go-neuralnetwork"
 	"io/ioutil"
 	"os"
+	"sort"
 )
 
+type net struct {
+	Net  network.Network
+	wins int
+}
+
 var (
-	tt    []network.Network
+	tt    []net
 	board = []float64{.5, .5, .5, .5, .5, .5, .5, .5, .5}
 	total int
-	err error
+	err   error
 )
 
 func main() {
-
 
 	if len(os.Args) > 1 {
 		fmt.Println("Loading", os.Args[1])
@@ -32,15 +37,38 @@ func main() {
 
 		total = 25
 		for i := 0; i < total; i++ {
-			tt = append(tt, network.New([]int{10, 729, 81, 9}))
+			tt = append(tt, net{network.New([]int{10, 729, 81, 9}), 0})
 		}
 
 	}
 
+	for gen := 1; gen <= 10; gen++ {
+		fight(gen)
+		fmt.Printf("Gen %d: Wins: [ ", gen)
+		for i := 0; i < len(tt); i++ {
+			fmt.Printf("%d ", tt[i].wins)
+		}
+		fmt.Println("]")
 
-	for gen := 1; gen <= 2; gen++ {
-	fight(gen)
-} 
+		jsonString, err := json.MarshalIndent(tt, "", "  ")
+		if err != nil {
+			fmt.Println("Error converting to JSON:", err)
+			os.Exit(1)
+		}
+
+		ioutil.WriteFile(fmt.Sprintf("gen.%05d", gen), jsonString, 0644)
+
+		sort.Slice(tt, func(i, j int) bool {
+			return tt[i].wins > tt[j].wins
+		})
+
+		//Replace lowest 5 with random new ones
+		replace := 5
+		tt = tt[:len(tt)-replace]
+		for r := 0; r < replace; r++ {
+			tt = append(tt, net{network.New([]int{10, 729, 81, 9}), 0})
+		}
+	}
 
 	jsonString, err := json.MarshalIndent(tt, "", "  ")
 	if err != nil {
@@ -48,103 +76,79 @@ func main() {
 		os.Exit(1)
 	}
 
-	ioutil.WriteFile("test.final", jsonString, 0644)
+	ioutil.WriteFile("gen.final", jsonString, 0644)
 
 }
 
 func fight(gen int) {
 	var illegal []int
-	var wins []int
 	for i := 0; i < total; i++ {
 		illegal = append(illegal, 0)
-		wins = append(wins, 0)
 	}
-	totalAttempts := 0
 	passillegal := true
+	games := 0
 	for passillegal {
 		passillegal = false
 		for i := 0; i < total; i++ {
-			wins[i] = 0
+			tt[i].wins = 0
 		}
 		for i := 0; i < total; i++ {
-			for j := i + 1; j < total; j++ {
+			for j := 0; j < total; j++ {
+				if i != j {
+					noillegals := false
+					for !noillegals {
+						thisillegal := []int{0, 0}
 
-				attempts := 0
-				noillegals := false
-				for !noillegals {
-					thisillegal := []int{0, 0}
-
-					reset()
-				Game0:
-					for move := 0; move < 9; move++ {
-						if move%2 == 0 {
-							won, illegalmoves := moveAI("X", tt[i])
-							thisillegal[0] += illegalmoves
-							if won {
-								wins[i]++
-								break Game0
+						reset()
+					Game:
+						for move := 0; move < 9; move++ {
+							if move%2 == 0 {
+								won, illegalmoves := moveAI("X", tt[i].Net)
+								thisillegal[0] += illegalmoves
+								if won {
+									tt[i].wins++
+									games++
+									break Game
+								}
+							}
+							if move%2 == 1 {
+								won, illegalmoves := moveAI("O", tt[j].Net)
+								thisillegal[1] += illegalmoves
+								if won {
+									tt[j].wins++
+									games++
+									break Game
+								}
 							}
 						}
-						if move%2 == 1 {
-							won, illegalmoves := moveAI("O", tt[j])
-							thisillegal[1] += illegalmoves
-							if won {
-								wins[j]++
-								break Game0
-							}
-						}
-					}
 
-					//print()
+						//print()
 
-					reset()
-				Game1:
-					for move := 1; move < 9; move++ {
-						if move%2 == 0 {
-							won, illegalmoves := moveAI("X", tt[j])
-							thisillegal[1] += illegalmoves
-							if won {
-								wins[j]++
-								break Game1
-							}
+						if thisillegal[0] == 0 && thisillegal[1] == 0 {
+							noillegals = true
+						} else {
+							passillegal = true
 						}
-						if move%2 == 1 {
-							won, illegalmoves := moveAI("O", tt[i])
-							thisillegal[0] += illegalmoves
-							if won {
-								wins[i]++
-								break Game1
-							}
+
+						illegal[i] += thisillegal[0]
+						illegal[j] += thisillegal[1]
+
+						if games%100 == 0 {
+							fmt.Printf("Gen %d: %5d Games, Illegal moves: %d\r", gen, games, illegal)
 						}
 					}
-
-					//print()
-
-					if thisillegal[0] == 0 && thisillegal[1] == 0 {
-						noillegals = true
-					} else {
-						passillegal = true
+					if games%100 == 0 {
+						fmt.Printf("Gen %d: %5d Games, Illegal moves: %d\r", gen, games, illegal)
 					}
-
-					illegal[i] += thisillegal[0]
-					illegal[j] += thisillegal[1]
-
-					attempts++
-					totalAttempts++
-
-					fmt.Printf("Gen %d: %5d Attempts, Illegal moves: %d      \r", gen, attempts, illegal)
 				}
-				fmt.Printf("Gen %d: %5d Attempts, Illegal moves: %d      \r", gen, attempts, illegal)
-				//fmt.Printf("%dv%d: %5d Attempts, Illegal moves: %d             \n", i, j, attempts, illegal)
 			}
 		}
 	}
+	fmt.Printf("Gen %d: %5d Games, Illegal moves: %d\n", gen, games, illegal)
 
-	fmt.Println()
-	fmt.Printf("Gen %d: Wins: %d\n", gen, wins)
 }
 
-func moveAI(player string, tt network.Network) (win bool, illegal int) {
+func moveAI(player string, net network.Network) (win bool, illegal int) {
 	var p float64
 	if player == "X" {
 		p = 1
@@ -158,7 +162,7 @@ func moveAI(player string, tt network.Network) (win bool, illegal int) {
 	largest_xy := 0
 	valid := false
 	for !valid {
-		spot := tt.Calc(append(board, p))
+		spot := net.Calc(append(board, p))
 		for xy := range spot {
 			if spot[xy] > spot[largest_xy] {
 				largest_xy = xy
@@ -168,7 +172,7 @@ func moveAI(player string, tt network.Network) (win bool, illegal int) {
 		if spot[largest_xy] < .5 {
 			//Nothing crossed the threshold, try and bring up outputs
 			target := []float64{1, 1, 1, 1, 1, 1, 1, 1, 1, p}
-			tt.Train(board, target)
+			net.Train(board, target)
 			illegal++
 		} else if board[largest_xy] == .5 {
 			//If it is a valid move, allow it
@@ -181,11 +185,10 @@ func moveAI(player string, tt network.Network) (win bool, illegal int) {
 					target[xy] = spot[xy]
 				}
 			}
-			tt.Train(board, target)
+			net.Train(board, target)
 			illegal++
 		}
 
-		//fmt.Printf("Attempts: %d  %5.3f\r", illegal, spot)
 	}
 	board[largest_xy] = p
 	if board[2] == p && board[1] == p && board[0] == p {
