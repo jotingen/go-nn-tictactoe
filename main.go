@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	network "github.com/jotingen/go-neuralnetwork"
+	"github.com/kokardy/listing"
 	"io/ioutil"
 	"math/rand"
 	"os"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type net struct {
@@ -22,16 +22,16 @@ type net struct {
 }
 
 var (
-	tt      []net
-	total   int
-	err     error
-	gen     uint64
-	games   uint64
-	illegal []uint64
+	tt         []net
+	total      int
+	err        error
+	gen        uint64
+	games      uint64
+	illegal    []uint64
+	pairsToRun [][][]int
 )
 
 func main() {
-	runtime.GOMAXPROCS(4)
 
 	if len(os.Args) > 1 {
 		fmt.Println("Loading", os.Args[1])
@@ -48,7 +48,7 @@ func main() {
 		fmt.Println("Total", total)
 	} else {
 
-		total = 1000
+		total = 100
 		for i := 0; i < total; i++ {
 			tt = append(tt, net{network.New([]int{10, 729, 81, 9}), 0})
 			illegal = append(illegal, 0)
@@ -119,17 +119,73 @@ func main() {
 			}
 		}
 	} else {
-		for gen = 1; gen <= 10; gen++ {
-			fight(gen)
-			sort.Slice(tt, func(i, j int) bool {
-				return tt[i].wins > tt[j].wins
-			})
+		fmt.Println("Generating unique pair list")
+		var test []int
+		for i := 0; i < total; i++ {
+			test = append(test, i)
+		}
+		ss := listing.IntReplacer(test)
+		//var pairsGood [][][]int
+		//var pairsSeen [][]int
+		var pairsUnused [][]int
+		//var perm listing.Replacer
+		for perm := range listing.Permutations(ss, 2, false, 10000) {
+
+			//Process into pairs
+			//TODO do this less hacky
+			p := fmt.Sprint(perm)
+			p = strings.Trim(p, "[")
+			p = strings.Trim(p, "]")
+			words := strings.Fields(p)
+			var pair []int
+			first, _ := strconv.Atoi(words[0])
+			second, _ := strconv.Atoi(words[1])
+			pair = append(pair, first)
+			pair = append(pair, second)
+			pairsUnused = append(pairsUnused, pair)
+
+		}
+
+		//fmt.Print(pairsUnused)
+		for len(pairsUnused) > 0 {
+			var pairs [][]int
+			for i := 0; i < len(pairsUnused); i++ {
+				usedNdx := false
+				for j := 0; j < len(pairs); j++ {
+					if pairsUnused[i][0] == pairs[j][0] {
+						usedNdx = true
+					}
+					if pairsUnused[i][0] == pairs[j][1] {
+						usedNdx = true
+					}
+					if pairsUnused[i][1] == pairs[j][0] {
+						usedNdx = true
+					}
+					if pairsUnused[i][1] == pairs[j][1] {
+						usedNdx = true
+					}
+				}
+				if !usedNdx {
+					pairs = append(pairs, pairsUnused[i])
+					pairsUnused = append(pairsUnused[:i], pairsUnused[i+1:]...)
+					i--
+				}
+			}
+			pairsToRun = append(pairsToRun, pairs)
+			//fmt.Println(pairs)
+		}
+
+		for gen = 1; gen <= 100; gen++ {
 			fight(gen)
 			fmt.Printf("\nGen %d: Wins: [ ", gen)
 			for i := 0; i < len(tt); i++ {
 				fmt.Printf("%d ", tt[i].wins)
 			}
 			fmt.Println("]")
+
+			sort.Slice(tt, func(i, j int) bool {
+				return tt[i].wins > tt[j].wins
+			})
 
 			jsonString, err := json.MarshalIndent(tt, "", "  ")
 			if err != nil {
@@ -198,60 +254,42 @@ func fight(gen uint64) {
 			tt[i].wins = 0
 		}
 
-		var wg sync.WaitGroup
-		for i := 0; i < total; i++ {
-			ndx := i;
-			wg.Add(1)
-			go func() {
-				passillegal = play(ndx, ndx, false) || passillegal
-				wg.Done()
-			}()
-			if (i+1)%4 == 0 {
-		wg.Wait()
+		var running int64 = 0
+
+		for p := 0; p < len(pairsToRun); p++ {
+			for i := 0; i < len(pairsToRun[p]); i++ {
+				games++
+				p0 := pairsToRun[p][i][0]
+				p1 := pairsToRun[p][i][1]
+				atomic.AddInt64(&running, 1)
+				go func() {
+					passillegal = play(p0, p1, true) || passillegal
+					atomic.AddInt64(&running, -1)
+				}()
+				//Throttle
+				//for running >= 8 {
+				//	time.Sleep(time.Second)
+				//}
+			}
+			//Wait for remaining pairs to finish
+			for running > 0 {
+				time.Sleep(time.Second)
 			}
 		}
-		wg.Wait()
+
+		//Run them against themselves
 		for i := 0; i < total; i++ {
-			for j := 0; j < total; j++ {
-				k := (i + 1*(total/4)) % total
-				l := (j + 1*(total/4)) % total
-				m := (i + 2*(total/4)) % total
-				n := (j + 2*(total/4)) % total
-				o := (i + 3*(total/4)) % total
-				p := (j + 3*(total/4)) % total
-				wg.Add(1)
-				go func() {
-					passillegal = play(i, j, true) || passillegal
-					wg.Done()
-				}()
-				if k != i && k != j && l != i && l != j {
-					wg.Add(1)
-					go func() {
-						passillegal = play(k, l, false) || passillegal
-						wg.Done()
-					}()
-				}
-				if m != k && m != l && n != k && n != l {
-					if m != i && m != j && n != i && l != j {
-						wg.Add(1)
-						go func() {
-							passillegal = play(m, n, false) || passillegal
-							wg.Done()
-						}()
-					}
-				}
-				if o != m && o != n && p != m && p != n {
-					if o != k && o != l && p != k && p != l {
-						if o != i && o != j && p != i && p != j {
-							wg.Add(1)
-							go func() {
-								passillegal = play(o, p, false) || passillegal
-								wg.Done()
-							}()
-						}
-					}
-				}
-				wg.Wait()
+			ndx := i
+			games++
+			//wg.Add(1)
+			atomic.AddInt64(&running, 1)
+			go func() {
+				passillegal = play(ndx, ndx, false) || passillegal
+				//wg.Done()
+				atomic.AddInt64(&running, -1)
+			}()
+			for running >= 8 {
+				time.Sleep(time.Second)
 			}
 		}
 	}
@@ -273,7 +311,7 @@ func play(i int, j int, allowWin bool) (illegals bool) {
 					if allowWin {
 						atomic.AddUint64(&tt[i].wins, 1)
 					}
-					atomic.AddUint64(&games, 1)
+					//atomic.AddUint64(&games, 1)
 					break Game
 				}
 			}
@@ -284,12 +322,12 @@ func play(i int, j int, allowWin bool) (illegals bool) {
 					if allowWin {
 						atomic.AddUint64(&tt[j].wins, 1)
 					}
-					atomic.AddUint64(&games, 1)
+					//atomic.AddUint64(&games, 1)
 					break Game
 				}
 			}
 			if move == 8 {
-				atomic.AddUint64(&games, 1)
+				//atomic.AddUint64(&games, 1)
 			}
 		}
 
