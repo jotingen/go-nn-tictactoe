@@ -22,13 +22,15 @@ type net struct {
 }
 
 var (
-	tt         []net
-	total      int
-	err        error
-	gen        uint64
-	games      uint64
-	illegal    []uint64
-	pairsToRun [][][]int
+	tt      []net
+	total   int
+	err     error
+	gen     uint64
+	games   uint64
+	passes  uint64
+	illegal []uint64
+	pairs   [][]int
+	running []bool
 )
 
 func main() {
@@ -44,14 +46,16 @@ func main() {
 		total = len(tt)
 		for i := 0; i < total; i++ {
 			illegal = append(illegal, 0)
+			running = append(running, false)
 		}
 		fmt.Println("Total", total)
 	} else {
 
-		total = 100
+		total = 64
 		for i := 0; i < total; i++ {
 			tt = append(tt, net{network.New([]int{10, 729, 81, 9}), 0})
 			illegal = append(illegal, 0)
+			running = append(running, false)
 		}
 
 	}
@@ -120,15 +124,14 @@ func main() {
 		}
 	} else {
 		fmt.Println("Generating unique pair list")
+
+		//Generate list to permutate
 		var test []int
 		for i := 0; i < total; i++ {
 			test = append(test, i)
+			pairs = append(pairs, []int{i, i})
 		}
 		ss := listing.IntReplacer(test)
-		//var pairsGood [][][]int
-		//var pairsSeen [][]int
-		var pairsUnused [][]int
-		//var perm listing.Replacer
 		for perm := range listing.Permutations(ss, 2, false, 10000) {
 
 			//Process into pairs
@@ -142,41 +145,13 @@ func main() {
 			second, _ := strconv.Atoi(words[1])
 			pair = append(pair, first)
 			pair = append(pair, second)
-			pairsUnused = append(pairsUnused, pair)
+			pairs = append(pairs, pair)
 
-		}
-
-		//fmt.Print(pairsUnused)
-		for len(pairsUnused) > 0 {
-			var pairs [][]int
-			for i := 0; i < len(pairsUnused); i++ {
-				usedNdx := false
-				for j := 0; j < len(pairs); j++ {
-					if pairsUnused[i][0] == pairs[j][0] {
-						usedNdx = true
-					}
-					if pairsUnused[i][0] == pairs[j][1] {
-						usedNdx = true
-					}
-					if pairsUnused[i][1] == pairs[j][0] {
-						usedNdx = true
-					}
-					if pairsUnused[i][1] == pairs[j][1] {
-						usedNdx = true
-					}
-				}
-				if !usedNdx {
-					pairs = append(pairs, pairsUnused[i])
-					pairsUnused = append(pairsUnused[:i], pairsUnused[i+1:]...)
-					i--
-				}
-			}
-			pairsToRun = append(pairsToRun, pairs)
-			//fmt.Println(pairs)
 		}
 
 		for gen = 1; gen <= 100; gen++ {
 			fight(gen)
+			time.Sleep(time.Second)
 			fmt.Printf("\nGen %d: Wins: [ ", gen)
 			for i := 0; i < len(tt); i++ {
 				fmt.Printf("%d ", tt[i].wins)
@@ -245,60 +220,93 @@ func main() {
 func fight(gen uint64) {
 	for i := 0; i < total; i++ {
 		illegal[i] = 0
+		tt[i].wins = 0
 	}
 	passillegal := true
-	games = 0
+	passes = 0
 	for passillegal {
+		passes++
+		games = 0
 		passillegal = false
-		for i := 0; i < total; i++ {
-			tt[i].wins = 0
+		var mypairs [][]int
+		for i := range pairs {
+			var mypair []int
+			mypair = append(mypair, pairs[i][0])
+			mypair = append(mypair, pairs[i][1])
+			mypairs = append(mypairs, mypair)
 		}
 
-		var running int64 = 0
-
-		for p := 0; p < len(pairsToRun); p++ {
-			for i := 0; i < len(pairsToRun[p]); i++ {
+		for len(mypairs) > 0 {
+			i := 0
+			if len(mypairs) > 1 {
+				i = rand.Intn(len(mypairs))
+			}
+			if !running[mypairs[i][0]] && !running[mypairs[i][1]] {
 				games++
-				p0 := pairsToRun[p][i][0]
-				p1 := pairsToRun[p][i][1]
-				atomic.AddInt64(&running, 1)
+				p0 := mypairs[i][0]
+				p1 := mypairs[i][1]
+				mypairs = append(mypairs[:i], mypairs[i+1:]...)
+				running[p0] = true
+				running[p1] = true
 				go func() {
 					passillegal = play(p0, p1, true) || passillegal
-					atomic.AddInt64(&running, -1)
+					running[p0] = false
+					running[p1] = false
 				}()
-				//Throttle
-				//for running >= 8 {
-				//	time.Sleep(time.Second)
-				//}
 			}
-			//Wait for remaining pairs to finish
-			for running > 0 {
-				time.Sleep(time.Second)
+			//runningCount := 0
+			//for r := 0; r < len(running); r++ {
+			//	if running[r] {
+			//		runningCount++
+			//	}
+			//}
+			//for runningCount >= 8 {
+			//	time.Sleep(time.Nanosecond*1000)
+			//	runningCount = 0
+			//	for r := 0; r < len(running); r++ {
+			//		if running[r] {
+			//			runningCount++
+			//		}
+			//	}
+			//}
+			time.Sleep(time.Nanosecond * 1000)
+		}
+		runningCount := 1
+		for r := 0; r < len(running); r++ {
+			if running[r] {
+				runningCount++
+			}
+		}
+		for runningCount == 0 {
+			time.Sleep(time.Nanosecond * 1000)
+			runningCount = 0
+			for r := 0; r < len(running); r++ {
+				if running[r] {
+					runningCount++
+				}
 			}
 		}
 
-		//Run them against themselves
-		for i := 0; i < total; i++ {
-			ndx := i
-			games++
-			//wg.Add(1)
-			atomic.AddInt64(&running, 1)
-			go func() {
-				passillegal = play(ndx, ndx, false) || passillegal
-				//wg.Done()
-				atomic.AddInt64(&running, -1)
-			}()
-			for running >= 8 {
-				time.Sleep(time.Second)
-			}
-		}
 	}
 
 }
 
-func play(i int, j int, allowWin bool) (illegals bool) {
-	noillegals := false
-	for !noillegals {
+func play(i int, j int, allowWin bool) (sawIllegals bool) {
+	illegals := true
+	sawIllegals = false
+
+	//Cut off a hopeless network
+	if illegal[i] >= 100000 {
+		atomic.AddUint64(&tt[i].wins, -tt[i].wins)
+		return false
+	}
+	if illegal[j] >= 100000 {
+		atomic.AddUint64(&tt[j].wins, -tt[j].wins)
+		return false
+	}
+
+	//Run games until we have a game with no illegal moves
+	for illegals {
 		thisillegal := []uint64{0, 0}
 
 		board := newBoard()
@@ -311,7 +319,6 @@ func play(i int, j int, allowWin bool) (illegals bool) {
 					if allowWin {
 						atomic.AddUint64(&tt[i].wins, 1)
 					}
-					//atomic.AddUint64(&games, 1)
 					break Game
 				}
 			}
@@ -322,29 +329,23 @@ func play(i int, j int, allowWin bool) (illegals bool) {
 					if allowWin {
 						atomic.AddUint64(&tt[j].wins, 1)
 					}
-					//atomic.AddUint64(&games, 1)
 					break Game
 				}
 			}
-			if move == 8 {
-				//atomic.AddUint64(&games, 1)
-			}
 		}
 
-		//print()
-
 		if thisillegal[0] == 0 && thisillegal[1] == 0 {
-			noillegals = true
+			illegals = false
 		} else {
-			illegals = true
+			sawIllegals = true
 		}
 
 		atomic.AddUint64(&illegal[i], thisillegal[0])
 		atomic.AddUint64(&illegal[j], thisillegal[1])
 
-		fmt.Printf("Gen %d: %5d Games, Illegal moves: %d\r", gen, games, illegal)
+		fmt.Printf("Gen %d: Pass %d: %5d:%d Games, Illegal moves: %d\r", gen, passes, games, len(pairs), illegal)
 	}
-	fmt.Printf("Gen %d: %5d Games, Illegal moves: %d\r", gen, games, illegal)
+	fmt.Printf("Gen %d: Pass %d: %5d:%d Games, Illegal moves: %d\r", gen, passes, games, len(pairs), illegal)
 	return
 }
 
