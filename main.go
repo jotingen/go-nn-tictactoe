@@ -21,6 +21,10 @@ type net struct {
 	wins uint64
 }
 
+const (
+	MAXFAIL uint64 = 1000000
+)
+
 var (
 	tt      []net
 	total   int
@@ -51,9 +55,9 @@ func main() {
 		fmt.Println("Total", total)
 	} else {
 
-		total = 64
+		total = 1000
 		for i := 0; i < total; i++ {
-			tt = append(tt, net{network.New([]int{10, 729, 81, 9}), 0})
+			tt = append(tt, net{network.New([]int{19, 729, 81, 9}), 0})
 			illegal = append(illegal, 0)
 			running = append(running, false)
 		}
@@ -61,7 +65,7 @@ func main() {
 	}
 
 	if len(os.Args) > 2 {
-
+		//Two arguments means a human is playing
 		board := newBoard()
 	Game:
 		for move := 0; move < 9; move++ {
@@ -84,37 +88,14 @@ func main() {
 					os.Exit(1)
 				}
 				board[mymove] = 1
-				if board[2] == 1 && board[1] == 1 && board[0] == 1 {
-					won = true
-				}
-				if board[5] == 1 && board[4] == 1 && board[3] == 1 {
-					won = true
-				}
-				if board[8] == 1 && board[7] == 1 && board[6] == 1 {
-					won = true
-				}
-				if board[8] == 1 && board[5] == 1 && board[2] == 1 {
-					won = true
-				}
-				if board[7] == 1 && board[4] == 1 && board[1] == 1 {
-					won = true
-				}
-				if board[6] == 1 && board[3] == 1 && board[0] == 1 {
-					won = true
-				}
-				if board[8] == 1 && board[4] == 1 && board[0] == 1 {
-					won = true
-				}
-				if board[6] == 1 && board[4] == 1 && board[2] == 1 {
-					won = true
-				}
+				won = checkWin(board, 1)
 				if won {
 					fmt.Println("You win!")
 					break Game
 				}
 			}
 			if move%2 == 1 {
-				won, _ := moveAI("O", tt[0].Net, board)
+				won, _, _ := moveAI("O", tt[0].Net, board)
 				if won {
 					print(board)
 					fmt.Println("You lose!")
@@ -149,7 +130,7 @@ func main() {
 
 		}
 
-		for gen = 1; gen <= 100; gen++ {
+		for gen = 1; gen <= 1000; gen++ {
 			fight(gen)
 			time.Sleep(time.Second)
 			fmt.Printf("\nGen %d: Wins: [ ", gen)
@@ -171,14 +152,35 @@ func main() {
 			ioutil.WriteFile(fmt.Sprintf("gen.%05d", gen), jsonString, 0644)
 
 			//Remove lowest 20
-			replaceChild := total / 3
-			replaceNew := total / 5
-			parents := total / 5
+			replaceChild := 0
+			replaceNew := 0
+			parents := 0
+			if total == 1 {
+				replaceChild = 0
+				replaceNew = 0
+				parents = 1
+			} else if total == 2 {
+				replaceChild = 0
+				replaceNew = 1
+				parents = 1
+			} else if total == 3 {
+				replaceChild = 0
+				replaceNew = 1
+				parents = 1
+			} else if total == 4 {
+				replaceChild = 1
+				replaceNew = 1
+				parents = 2
+			} else {
+				replaceChild = total / 3
+				replaceNew = 2
+				parents = total / 2
+			}
 			tt = tt[:len(tt)-replaceChild-replaceNew]
 
 			//Replace middle 15 with children
 			for r := 0; r < replaceChild; r++ {
-				ttnew := net{network.New([]int{10, 729, 81, 9}), 0}
+				ttnew := net{network.New([]int{19, 729, 81, 9}), 0}
 				parentA := rand.Intn(parents)
 				parentB := rand.Intn(parents)
 				for i := 0; i < len(ttnew.Net.Neurons); i++ {
@@ -202,7 +204,7 @@ func main() {
 
 			//Replace lowest 5 with random new ones
 			for r := 0; r < replaceNew; r++ {
-				tt = append(tt, net{network.New([]int{10, 729, 81, 9}), 0})
+				tt = append(tt, net{network.New([]int{19, 729, 81, 9}), 0})
 			}
 		}
 	}
@@ -220,12 +222,14 @@ func main() {
 func fight(gen uint64) {
 	for i := 0; i < total; i++ {
 		illegal[i] = 0
-		tt[i].wins = 0
 	}
 	passillegal := true
 	passes = 0
 	for passillegal {
 		passes++
+		for i := 0; i < total; i++ {
+			tt[i].wins = 1
+		}
 		games = 0
 		passillegal = false
 		var mypairs [][]int
@@ -291,16 +295,35 @@ func fight(gen uint64) {
 
 }
 
+func boardAI(board []float64) (boardForAI []float64) {
+
+	for b := range board {
+		if board[b] == 1 {
+			boardForAI = append(boardForAI, 1)
+		} else {
+			boardForAI = append(boardForAI, 0)
+		}
+	}
+	for b := range board {
+		if board[b] == 0 {
+			boardForAI = append(boardForAI, 1)
+		} else {
+			boardForAI = append(boardForAI, 0)
+		}
+	}
+	return
+}
+
 func play(i int, j int, allowWin bool) (sawIllegals bool) {
 	illegals := true
 	sawIllegals = false
 
 	//Cut off a hopeless network
-	if illegal[i] >= 100000 {
+	if illegal[i] >= MAXFAIL {
 		atomic.AddUint64(&tt[i].wins, -tt[i].wins)
 		return false
 	}
-	if illegal[j] >= 100000 {
+	if illegal[j] >= MAXFAIL {
 		atomic.AddUint64(&tt[j].wins, -tt[j].wins)
 		return false
 	}
@@ -310,26 +333,58 @@ func play(i int, j int, allowWin bool) (sawIllegals bool) {
 		thisillegal := []uint64{0, 0}
 
 		board := newBoard()
+		var boards0 [][]float64
+		var boards1 [][]float64
+		var moves0 [][]float64
+		var moves1 [][]float64
+
 	Game:
-		for move := 0; move < 9; move++ {
-			if move%2 == 0 {
-				won, illegalmoves := moveAI("X", tt[i].Net, board)
+		for m := 0; m < 9; m++ {
+			thisBoard := make([]float64, len(board))
+			copy(thisBoard, board)
+			if m%2 == 0 {
+				boards0 = append(boards0, thisBoard)
+				won, illegalmoves, move := moveAI("X", tt[i].Net, board)
+				moves0 = append(moves0, move)
 				thisillegal[0] += illegalmoves
+				atomic.AddUint64(&illegal[i], illegalmoves)
 				if won {
 					if allowWin {
 						atomic.AddUint64(&tt[i].wins, 1)
 					}
+					for w := range moves0 {
+						tt[i].Net.Train(append(boardAI(boards0[w]), 1), moves0[w])
+					}
 					break Game
+				} else {
+					if illegal[i] >= MAXFAIL {
+						atomic.AddUint64(&tt[i].wins, -tt[i].wins)
+
+						return false
+					}
 				}
 			}
-			if move%2 == 1 {
-				won, illegalmoves := moveAI("O", tt[j].Net, board)
+			if m%2 == 1 {
+				boards1 = append(boards1, thisBoard)
+				won, illegalmoves, move := moveAI("O", tt[j].Net, board)
+				moves1 = append(moves1, move)
 				thisillegal[1] += illegalmoves
+				atomic.AddUint64(&illegal[j], illegalmoves)
 				if won {
 					if allowWin {
 						atomic.AddUint64(&tt[j].wins, 1)
 					}
+					for w := range moves1 {
+						//fmt.Printf("WINNER TRAIN %4.2f %4.2f\n", boards1[w], moves1[w])
+						tt[j].Net.Train(append(boardAI(boards1[w]), 0), moves1[w])
+					}
 					break Game
+				} else {
+					if illegal[j] >= MAXFAIL {
+						atomic.AddUint64(&tt[j].wins, -tt[j].wins)
+
+						return false
+					}
 				}
 			}
 		}
@@ -340,8 +395,8 @@ func play(i int, j int, allowWin bool) (sawIllegals bool) {
 			sawIllegals = true
 		}
 
-		atomic.AddUint64(&illegal[i], thisillegal[0])
-		atomic.AddUint64(&illegal[j], thisillegal[1])
+		//atomic.AddUint64(&illegal[i], thisillegal[0])
+		//atomic.AddUint64(&illegal[j], thisillegal[1])
 
 		fmt.Printf("Gen %d: Pass %d: %5d:%d Games, Illegal moves: %d\r", gen, passes, games, len(pairs), illegal)
 	}
@@ -349,7 +404,7 @@ func play(i int, j int, allowWin bool) (sawIllegals bool) {
 	return
 }
 
-func moveAI(player string, net network.Network, board []float64) (win bool, illegal uint64) {
+func moveAI(player string, net network.Network, board []float64) (win bool, illegal uint64, move []float64) {
 	var p float64
 	if player == "X" {
 		p = 1
@@ -362,8 +417,8 @@ func moveAI(player string, net network.Network, board []float64) (win bool, ille
 	illegal = 0
 	largest_xy := 0
 	valid := false
-	for !valid {
-		spot := net.Calc(append(board, p))
+	for !valid && illegal <= MAXFAIL {
+		spot := net.Calc(append(boardAI(board), p))
 		for xy := range spot {
 			if spot[xy] > spot[largest_xy] {
 				largest_xy = xy
@@ -372,50 +427,38 @@ func moveAI(player string, net network.Network, board []float64) (win bool, ille
 
 		if spot[largest_xy] < .5 {
 			//Nothing crossed the threshold, try and bring up outputs
-			target := []float64{1, 1, 1, 1, 1, 1, 1, 1, 1, p}
-			net.Train(board, target)
+			target := []float64{1, 1, 1, 1, 1, 1, 1, 1, 1}
+			for xy := range board {
+				if board[xy] != .5 {
+					target[xy] = 0
+				}
+			}
+			//fmt.Printf("%d SPEAKUP TRAIN %4.2f %4.2f %4.2f\n", illegal, board, spot, target)
+			net.Train(append(boardAI(board), p), target)
 			illegal++
 		} else if board[largest_xy] == .5 {
 			//If it is a valid move, allow it
 			valid = true
 		} else {
 			//If it is an invalid move, train it to not prefer this move and try again until we get a valid move
-			target := []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, p}
+			target := []float64{0, 0, 0, 0, 0, 0, 0, 0, 0}
 			for xy := range board {
-				if board[xy] == .5 {
-					target[xy] = spot[xy]
+				if board[xy] != .5 {
+					target[xy] = -1
 				}
 			}
-			net.Train(board, target)
+			//fmt.Printf("%d ILLEGAL TRAIN %4.2f %4.2f %4.2f\n", illegal, board, spot, target)
+			net.Train(append(boardAI(board), p), target)
+			//net.Print()
+			//os.Exit(0)
 			illegal++
 		}
 
 	}
+	move = []float64{0, 0, 0, 0, 0, 0, 0, 0, 0}
+	move[largest_xy] = 1
 	board[largest_xy] = p
-	if board[2] == p && board[1] == p && board[0] == p {
-		win = true
-	}
-	if board[5] == p && board[4] == p && board[3] == p {
-		win = true
-	}
-	if board[8] == p && board[7] == p && board[6] == p {
-		win = true
-	}
-	if board[8] == p && board[5] == p && board[2] == p {
-		win = true
-	}
-	if board[7] == p && board[4] == p && board[1] == p {
-		win = true
-	}
-	if board[6] == p && board[3] == p && board[0] == p {
-		win = true
-	}
-	if board[8] == p && board[4] == p && board[0] == p {
-		win = true
-	}
-	if board[6] == p && board[4] == p && board[2] == p {
-		win = true
-	}
+	win = checkWin(board, p)
 
 	return
 }
@@ -441,4 +484,32 @@ func printXO(value float64, place int) (xo string) {
 
 func newBoard() (board []float64) {
 	return []float64{.5, .5, .5, .5, .5, .5, .5, .5, .5}
+}
+
+func checkWin(board []float64, p float64) (win bool) {
+	if board[2] == p && board[1] == p && board[0] == p {
+		win = true
+	}
+	if board[5] == p && board[4] == p && board[3] == p {
+		win = true
+	}
+	if board[8] == p && board[7] == p && board[6] == p {
+		win = true
+	}
+	if board[8] == p && board[5] == p && board[2] == p {
+		win = true
+	}
+	if board[7] == p && board[4] == p && board[1] == p {
+		win = true
+	}
+	if board[6] == p && board[3] == p && board[0] == p {
+		win = true
+	}
+	if board[8] == p && board[4] == p && board[0] == p {
+		win = true
+	}
+	if board[6] == p && board[4] == p && board[2] == p {
+		win = true
+	}
+	return
 }
